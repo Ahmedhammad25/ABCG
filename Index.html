@@ -1,0 +1,1685 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HR & Leave Management System</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom scrollbar styling */
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 8px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #f1f1f1;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+        /* Custom colors for a professional look */
+        .color-primary { background-color: #1e3a8a; } /* Dark Blue */
+        .color-secondary { background-color: #3b82f6; } /* Light Blue */
+
+        /* Calendar specific styling for hover/tooltip */
+        .calendar-day-active {
+            background-color: #fca5a5; /* Red-300 for active days */
+            position: relative;
+        }
+        .calendar-day-tooltip {
+            visibility: hidden;
+            background-color: #1f2937; /* Gray-800 */
+            color: #fff;
+            text-align: left;
+            border-radius: 6px;
+            padding: 8px;
+            position: absolute;
+            z-index: 10;
+            bottom: 125%; /* Position above the day cell */
+            left: 50%;
+            transform: translateX(-50%);
+            white-space: nowrap;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            font-size: 0.75rem;
+        }
+        .calendar-day:hover .calendar-day-tooltip {
+            visibility: visible;
+        }
+        .calendar-day-tooltip::after {
+            content: "";
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            margin-left: -5px;
+            border-width: 5px;
+            border-style: solid;
+            border-color: #1f2937 transparent transparent transparent;
+        }
+    </style>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-gray-50 font-sans">
+
+    <!-- Main Application Container -->
+    <div id="app" class="min-h-screen flex items-center justify-center p-4">
+        <!-- Content will be injected here (Login or Dashboard) -->
+    </div>
+    
+    <!-- Global Modal Container -->
+    <div id="modal-container"></div>
+
+    <!-- JavaScript Logic -->
+    <script>
+        // Global state for the application
+        let state = {
+            currentUser: null,
+            users: [],
+            departments: [],
+            leaves: [],
+            notifications: [], // NEW: Array to hold all system notifications
+            settings: {
+                maxMonthlyLeaves: 5, // Max allowed days per month
+            },
+            // NEW: Temporary filter state for dynamic filtering in review/history panels
+            filter: {
+                reviewEmployee: '',
+                historyStatus: 'all',
+                historyEmployee: '',
+            }
+        };
+
+        // --- 1. Data Initialization and Persistence ---
+
+        // Function to load data from localStorage or initialize defaults
+        const initData = () => {
+            const storedData = localStorage.getItem('hr_app_state');
+
+            // Default filter structure to ensure initialization
+            const defaultFilter = {
+                reviewEmployee: '',
+                historyStatus: 'all',
+                historyEmployee: '',
+            };
+            
+            if (storedData) {
+                state = JSON.parse(storedData);
+                
+                // FIX: Ensure filter structure exists and is complete after loading old state
+                if (!state.filter) {
+                    state.filter = defaultFilter;
+                } else {
+                    state.filter = { ...defaultFilter, ...state.filter };
+                }
+                
+                // Ensure legacy data gets the new property if not present
+                state.departments.forEach(d => {
+                    if (typeof d.isSubmissionOpen === 'undefined') {
+                        d.isSubmissionOpen = true; // Default to open
+                    }
+                });
+                if (!state.notifications) state.notifications = [];
+                // Ensure users have the new 'title', 'joinDate', 'mobileNumber', and 'positionTitle' property
+                state.users.forEach(u => {
+                    if (typeof u.title === 'undefined') u.title = 'Mr.';
+                    if (typeof u.joinDate === 'undefined') u.joinDate = '2023-01-01'; // Default placeholder
+                    if (typeof u.mobileNumber === 'undefined') u.mobileNumber = 'N/A';
+                    if (typeof u.positionTitle === 'undefined') u.positionTitle = 'Employee';
+                    if (typeof u.project === 'undefined') u.project = 'N/A';
+                });
+            } else {
+                // Initial setup data (Translated) - ADDED new fields
+                state.users = [
+                    { id: 1, name: 'System Administrator (Admin)', username: 'admin', password: '123', role: 'admin', departmentId: null, title: 'Mr.', joinDate: '2020-05-15', mobileNumber: '0501234567', positionTitle: 'System Admin', project: 'N/A' },
+                    { id: 2, name: 'Sales Manager (Manager)', username: 'manager1', password: '123', role: 'manager', departmentId: 1, title: 'Eng.', joinDate: '2021-03-20', mobileNumber: '0501112233', positionTitle: 'Sales Manager', project: 'SH' },
+                    { id: 3, name: 'Employee Ali', username: 'employee1', password: '123', role: 'employee', departmentId: 1, title: 'Mr.', joinDate: '2023-10-01', mobileNumber: '0504445566', positionTitle: 'Sales Executive', project: 'MSBA' },
+                    { id: 4, name: 'Employee Fatma', username: 'employee2', password: '123', role: 'employee', departmentId: 2, title: 'Ms.', joinDate: '2024-01-25', mobileNumber: '0507778899', positionTitle: 'Accountant', project: 'N/A' },
+                    { id: 5, name: 'Finance Manager (Manager)', username: 'manager2', password: '123', role: 'manager', departmentId: 2, title: 'Dr.', joinDate: '2022-07-07', mobileNumber: '0509990000', positionTitle: 'Finance Director', project: 'SH' },
+                ];
+                state.departments = [
+                    { id: 1, name: 'Sales Department', managerId: 2, isSubmissionOpen: true },
+                    { id: 2, name: 'Finance Department', managerId: 5, isSubmissionOpen: true },
+                    { id: 3, name: 'HR Department', managerId: 1, isSubmissionOpen: false }, 
+                ];
+                state.leaves = [
+                    // Example leaves for current month (October 2025) or near it
+                    { id: 101, userId: 3, startDate: '2025-10-20', endDate: '2025-10-22', days: 3, reason: 'Family Travel', status: 'pending', submittedAt: '2025-10-15', managerId: 2 },
+                    { id: 102, userId: 4, startDate: '2025-11-01', endDate: '2025-11-05', days: 5, reason: 'Annual Leave', status: 'approved', submittedAt: '2025-10-01', managerId: 5 },
+                    { id: 103, userId: 3, startDate: '2025-10-05', endDate: '2025-10-06', days: 2, reason: 'Sick Leave', status: 'approved', submittedAt: '2025-10-01', managerId: 2 },
+                ];
+                state.notifications = [
+                    { id: 1, userId: 1, message: 'Welcome! Start by setting up departments and max leave days.', timestamp: new Date().toLocaleString('en-US'), read: false },
+                    { id: 2, userId: 3, message: 'Your leave request (2025-11-01 to 2025-11-05) was approved.', timestamp: new Date().toLocaleString('en-US'), read: true },
+                ];
+                // Ensure departments link to the correct managerId from the initial users
+                state.departments.forEach(dept => {
+                    const manager = state.users.find(u => u.id === dept.managerId);
+                    if (manager) {
+                        manager.departmentId = dept.id;
+                        if (manager.role !== 'admin') manager.role = 'manager';
+                    }
+                });
+            }
+            saveData();
+        };
+
+        // Function to save current state to localStorage
+        const saveData = () => {
+            localStorage.setItem('hr_app_state', JSON.stringify(state));
+        };
+
+        // --- 2. Utility Functions ---
+
+        const getUserById = (id) => state.users.find(u => u.id === id) || { 
+            id: id, 
+            name: 'DELETED USER', 
+            title: '', 
+            departmentId: null, 
+            role: 'employee',
+            username: 'deleted',
+            password: '',
+            joinDate: 'N/A',
+            mobileNumber: 'N/A',
+            positionTitle: 'N/A',
+            project: 'N/A'
+        }; // FIX: Return a safe, placeholder object if user is not found
+        const getDeptById = (id) => state.departments.find(d => d.id === id);
+        const getDeptManagerName = (deptId) => {
+            const dept = getDeptById(deptId);
+            if (!dept || !dept.managerId) return 'Manager Not Assigned';
+            const manager = getUserById(dept.managerId);
+            return manager ? `${manager.title} ${manager.name}` : 'Unknown';
+        };
+        const getEmployeeDeptName = (userId) => {
+            const user = getUserById(userId);
+            return getDeptById(user?.departmentId)?.name || 'Not Defined';
+        };
+
+        // Generate unique IDs
+        const getNextId = (array) => (array.length ? Math.max(...array.map(i => i.id)) : 0) + 1;
+
+        // Calculate business days (simple calculation for this prototype)
+        const calculateDays = (start, end) => {
+            const startDate = new Date(start);
+            const endDate = new Date(end);
+            if (startDate > endDate) return 0; // Check for invalid date range
+            const diffTime = Math.abs(endDate - startDate);
+            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1; // +1 to include start day
+            return diffDays;
+        };
+        
+        // --- Helper function to render Department list with filtering ---
+        const generateDepartmentListHTML = (filterTerm = '') => {
+            const lowerCaseFilter = filterTerm.toLowerCase();
+            const departments = state.departments.filter(d => 
+                d.name.toLowerCase().includes(lowerCaseFilter) || 
+                getDeptManagerName(d.id).toLowerCase().includes(lowerCaseFilter)
+            );
+
+            return departments.map(d => `
+                <div class="p-2 bg-gray-50 border rounded-lg flex justify-between items-center text-sm">
+                    <div class="flex-1">
+                        <span>${d.name}</span>
+                        <span class="text-xs text-gray-500 block">Manager: ${getDeptManagerName(d.id)}</span>
+                    </div>
+                    <button data-dept-id="${d.id}" class="delete-dept-btn px-2 py-0.5 text-xs bg-red-500 text-white rounded-md hover:bg-red-600 transition">Delete</button>
+                </div>
+            `).join('');
+        };
+        
+        // --- Helper function to render Employee Management list with filtering ---
+        const generateEmployeeListManagementHTML = (filterTerm = '') => {
+            const lowerCaseFilter = filterTerm.toLowerCase();
+            const employees = state.users
+                .filter(u => u.role !== 'admin')
+                .filter(u => 
+                    u.name.toLowerCase().includes(lowerCaseFilter) || 
+                    u.positionTitle.toLowerCase().includes(lowerCaseFilter) ||
+                    u.title.toLowerCase().includes(lowerCaseFilter) ||
+                    getEmployeeDeptName(u.id).toLowerCase().includes(lowerCaseFilter) ||
+                    (u.project && u.project.toLowerCase().includes(lowerCaseFilter)) // Filter by Project
+                );
+
+            return employees.map(u => `
+                <div class="p-2 bg-gray-50 border rounded-lg flex justify-between items-center text-sm">
+                    <div class="flex-1">
+                        <span>${u.title} ${u.name} (${u.role === 'manager' ? 'Manager' : 'Employee'})</span>
+                        <span class="text-xs text-gray-500 block">Department: ${getEmployeeDeptName(u.id)} | Position: ${u.positionTitle} | Project: ${u.project}</span>
+                    </div>
+                    <div class="flex space-x-2">
+                        <!-- View Profile Button (NEW) -->
+                        <button data-user-id="${u.id}" class="view-profile-btn px-2 py-0.5 text-xs bg-blue-500 text-white rounded-md hover:bg-blue-600 transition">View Profile</button>
+                        <button data-user-id="${u.id}" class="delete-user-btn px-2 py-0.5 text-xs bg-red-500 text-white rounded-md hover:bg-red-600 transition">Delete</button>
+                    </div>
+                </div>
+            `).join('') || '<p class="text-center text-gray-500 p-4">No employees registered besides the Admin matching the search criteria.</p>';
+        };
+
+
+        // --- 3. Notification Management ---
+
+        const createNotification = (recipientId, message) => {
+            const newNotification = {
+                id: getNextId(state.notifications),
+                userId: recipientId,
+                message: message,
+                timestamp: new Date().toLocaleString('en-US'),
+                read: false
+            };
+            state.notifications.unshift(newNotification); // Add to the start
+            saveData();
+        };
+
+        const markNotificationsAsRead = (userId) => {
+            state.notifications.forEach(n => {
+                if (n.userId === userId && !n.read) {
+                    n.read = true;
+                }
+            });
+            saveData();
+        };
+
+        const getUnreadNotificationCount = (userId) => {
+            return state.notifications.filter(n => n.userId === userId && !n.read).length;
+        };
+
+        // --- 4. Authentication & Password Change ---
+
+        const login = (username, password) => {
+            const user = state.users.find(u => u.username === username && u.password === password);
+            if (user) {
+                state.currentUser = user;
+                renderApp();
+            } else {
+                displayMessage('Invalid username or password.', 'bg-red-500');
+            }
+        };
+
+        const logout = () => {
+            state.currentUser = null;
+            renderApp();
+        };
+
+        const handleChangePassword = (oldPassword, newPassword) => {
+            const user = state.currentUser;
+            if (user.password !== oldPassword) {
+                displayMessage('Incorrect old password.', 'bg-red-500');
+                return false;
+            }
+            if (newPassword.length < 3) {
+                displayMessage('New password must be at least 3 characters long.', 'bg-red-500');
+                return false;
+            }
+
+            // Find and update password in the state.users array
+            const userIndex = state.users.findIndex(u => u.id === user.id);
+            if (userIndex !== -1) {
+                state.users[userIndex].password = newPassword;
+                state.currentUser.password = newPassword;
+                saveData();
+                displayMessage('Password changed successfully. Please log in again.', 'bg-green-500');
+                closeModal();
+                logout(); // Force re-login for security
+                return true;
+            }
+            displayMessage('Error changing password.', 'bg-red-500');
+            return false;
+        };
+
+        // --- Export Functions ---
+
+        // Function to convert data array to CSV and trigger download
+        const exportCSV = (data, filename) => {
+            // Convert data array to a CSV string
+            let csvContent = "";
+            data.forEach(row => {
+                // Ensure complex strings (like dates with commas) are handled by wrapping them in quotes, 
+                // though basic date strings are usually fine.
+                const rowString = row.map(cell => {
+                    const str = String(cell).replace(/"/g, '""'); // Escape double quotes
+                    return str.includes(',') || str.includes('\n') || str.includes('"') ? `"${str}"` : str;
+                }).join(",");
+                csvContent += rowString + "\r\n";
+            });
+
+            // Trigger download
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement("a");
+            if (link.download !== undefined) {
+                const url = URL.createObjectURL(blob);
+                link.setAttribute("href", url);
+                link.setAttribute("download", filename);
+                link.style.visibility = 'hidden';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                displayMessage(`Exported ${filename} successfully.`, 'bg-green-500');
+            } else {
+                displayMessage('Your browser does not support CSV export download.', 'bg-red-500');
+            }
+        };
+
+        // Function to generate the attendance grid data matching the user's complex requirement
+        const generateAttendanceGrid = () => {
+            const today = new Date();
+            const currentYear = today.getFullYear();
+            const currentMonthIndex = today.getMonth(); // 0 (Jan) to 11 (Dec)
+            const monthName = today.toLocaleString('en-US', { month: 'long' });
+            
+            // 1. Determine all days in the current month
+            const daysInMonth = new Date(currentYear, currentMonthIndex + 1, 0).getDate();
+            const dates = [];
+            const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+            for (let i = 1; i <= daysInMonth; i++) {
+                const date = new Date(currentYear, currentMonthIndex, i);
+                const dateString = `${i}-${currentMonthIndex + 1}-${currentYear}`; // D-M-Y format
+                const day = dayNames[date.getDay()];
+                dates.push({ date: dateString, day: day, fullDate: date.toISOString().split('T')[0] });
+            }
+
+            // 2. Prepare the CSV Header (to roughly match the complexity of the user's image)
+            // Header Row 1: General Info and Day Names
+            const headerRow1 = ['', 'POSITION', 'NAME', 'start date'];
+            // Header Row 2: Specific Mock Roles and Day Numbers
+            const headerRow2 = ['', 'RE', 'RE Deputy', '']; 
+            
+            dates.forEach(d => {
+                headerRow1.push(d.day);
+                headerRow2.push(d.date.split('-')[0]); // Just the day number
+            });
+
+            const csvData = [
+                ['', '', `${monthName.toUpperCase()} ${currentYear} ATTENDANCE`],
+                headerRow1,
+                headerRow2
+            ];
+
+            // 3. Generate data rows for all non-admin employees
+            const employeesToExport = state.users.filter(u => u.role !== 'admin');
+            
+            employeesToExport.forEach(emp => {
+                // Use actual position title
+                const position = emp.positionTitle || 'Employee';
+                // Mock Position based on role (to match image style)
+                // const position = emp.role === 'manager' ? 'RE Deputy' : 'Jr. Civil'; 
+                const row = [emp.title, position, `${emp.title} ${emp.name}`, emp.joinDate];
+                
+                // Get all approved leaves for this employee for the current month/year
+                const approvedLeaves = state.leaves.filter(l => 
+                    l.userId === emp.id && l.status === 'approved'
+                );
+
+                dates.forEach(dayInfo => {
+                    let isApprovedLeave = false;
+                    
+                    // Check if employee has an approved leave that covers this specific date
+                    for (const leave of approvedLeaves) {
+                        const leaveStart = new Date(leave.startDate);
+                        const leaveEnd = new Date(leave.endDate);
+                        const currentDay = new Date(dayInfo.fullDate);
+                        
+                        // Set hours to 0 for accurate date range comparison
+                        leaveStart.setHours(0, 0, 0, 0);
+                        leaveEnd.setHours(0, 0, 0, 0);
+                        currentDay.setHours(0, 0, 0, 0);
+
+                        if (currentDay >= leaveStart && currentDay <= leaveEnd) {
+                            isApprovedLeave = true;
+                            break;
+                        }
+                    }
+                    
+                    // Push 'X' if approved leave, blank otherwise (matching the attendance sheet style)
+                    row.push(isApprovedLeave ? 'X' : ''); 
+                });
+                
+                csvData.push(row);
+            });
+
+            return csvData;
+        };
+
+        // Function to handle the actual export process
+        const handleExport = () => {
+            const today = new Date();
+            const monthName = today.toLocaleString('en-US', { month: 'long' });
+            const year = today.getFullYear();
+            const filename = `Attendance_Approved_Leaves_${monthName}_${year}.csv`;
+            
+            const data = generateAttendanceGrid();
+            exportCSV(data, filename);
+        };
+
+
+        // --- 5. Render Functions (Views) ---
+
+        // Generic modal rendering functions
+        const renderModal = (contentHTML) => {
+            const container = document.getElementById('modal-container');
+            container.innerHTML = `
+                <div id="backdrop" class="fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center z-50 p-4">
+                    <div class="bg-white rounded-xl shadow-2xl p-6 w-full max-w-lg relative">
+                        <button onclick="closeModal()" class="absolute top-4 right-4 text-gray-500 hover:text-gray-800">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                        </button>
+                        ${contentHTML}
+                    </div>
+                </div>
+            `;
+            // Close modal on backdrop click
+            document.getElementById('backdrop').addEventListener('click', (e) => {
+                if (e.target.id === 'backdrop') {
+                    closeModal();
+                }
+            });
+        };
+
+        const closeModal = () => {
+            document.getElementById('modal-container').innerHTML = '';
+        };
+
+        const renderChangePasswordModal = () => {
+            const content = `
+                <h3 class="text-2xl font-bold mb-4 text-gray-800">Change Password</h3>
+                <form id="change-password-form" class="space-y-4">
+                    <div>
+                        <label for="old-password" class="block text-sm font-medium text-gray-700">Old Password:</label>
+                        <input type="password" id="old-password" required class="mt-1 block w-full px-3 py-2 border rounded-lg">
+                    </div>
+                    <div>
+                        <label for="new-password" class="block text-sm font-medium text-gray-700">New Password:</label>
+                        <input type="password" id="new-password" required minlength="3" class="mt-1 block w-full px-3 py-2 border rounded-lg">
+                        <p class="text-xs text-gray-500 mt-1">Minimum 3 characters.</p>
+                    </div>
+                    <div>
+                        <label for="confirm-password" class="block text-sm font-medium text-gray-700">Confirm New Password:</label>
+                        <input type="password" id="confirm-password" required class="mt-1 block w-full px-3 py-2 border rounded-lg">
+                    </div>
+                    <button type="submit" class="w-full py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">Update Password</button>
+                </form>
+            `;
+            renderModal(content);
+
+            document.getElementById('change-password-form').addEventListener('submit', (e) => {
+                e.preventDefault();
+                const oldPass = e.target['old-password'].value;
+                const newPass = e.target['new-password'].value;
+                const confirmPass = e.target['confirm-password'].value;
+
+                if (newPass !== confirmPass) {
+                    displayMessage('New password and confirmation do not match.', 'bg-red-500');
+                    return;
+                }
+                
+                if (handleChangePassword(oldPass, newPass)) {
+                    // Password changed, logout handled inside handleChangePassword
+                }
+            });
+        };
+
+        const renderEmployeeProfileModal = (userId) => {
+            const employee = getUserById(userId);
+            if (!employee) {
+                displayMessage('Employee not found.', 'bg-red-500');
+                return;
+            }
+
+            const departmentName = getEmployeeDeptName(userId);
+            const content = `
+                <h3 class="text-2xl font-bold mb-4 text-gray-800">Employee Profile: ${employee.title} ${employee.name}</h3>
+                <div class="space-y-3 p-4 border rounded-lg bg-gray-50">
+                    <p><strong>Title:</strong> ${employee.title}</p>
+                    <p><strong>Full Name:</strong> ${employee.name}</p>
+                    <p><strong>Username:</strong> ${employee.username}</p>
+                    <p><strong>Role:</strong> ${employee.role.toUpperCase()}</p>
+                    <p><strong>Department:</strong> ${departmentName}</p>
+                    <p><strong>Position Title:</strong> ${employee.positionTitle}</p>
+                    <p><strong>Mobile Number:</strong> ${employee.mobileNumber}</p>
+                    <p><strong>Start Date:</strong> ${employee.joinDate}</p>
+                    <p><strong>Project:</strong> ${employee.project}</p>
+                </div>
+                <div class="mt-4 text-right">
+                    <button onclick="closeModal()" class="px-4 py-2 bg-gray-300 text-gray-800 rounded-lg hover:bg-gray-400 transition">Close</button>
+                </div>
+            `;
+            renderModal(content);
+        };
+
+        // NEW: Function to render the leave calendar modal
+        const renderLeaveCalendarModal = () => {
+            const departmentId = state.currentUser.departmentId;
+            const department = getDeptById(departmentId);
+            if (!department) {
+                displayMessage('Department not found.', 'bg-red-500');
+                return;
+            }
+
+            const today = new Date();
+            let currentMonth = today.getMonth();
+            let currentYear = today.getFullYear();
+
+            const renderCalendar = (month, year) => {
+                const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+                const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+                
+                const firstDayOfMonth = new Date(year, month, 1).getDay(); // 0 = Sunday, 6 = Saturday
+                const daysInMonth = new Date(year, month + 1, 0).getDate();
+                
+                const calendarDateStr = `${year}-${String(month + 1).padStart(2, '0')}`;
+
+                // Get all *approved* leaves for the department in the current month/year
+                const approvedLeaves = state.leaves.filter(l => 
+                    l.status === 'approved' && getUserById(l.userId)?.departmentId === departmentId
+                );
+
+                // Map to store leave details for each day (Date String -> Array of {employeeName, days})
+                const leavesByDay = {};
+                
+                approvedLeaves.forEach(leave => {
+                    let currentDate = new Date(leave.startDate);
+                    let endDate = new Date(leave.endDate);
+
+                    while (currentDate <= endDate) {
+                        const dateKey = currentDate.toISOString().split('T')[0];
+                        
+                        // Check if the date is within the current calendar view month
+                        if (dateKey.startsWith(calendarDateStr)) {
+                            const employee = getUserById(leave.userId);
+                            const name = employee.title + ' ' + employee.name;
+                            
+                            if (!leavesByDay[dateKey]) {
+                                leavesByDay[dateKey] = [];
+                            }
+                            leavesByDay[dateKey].push({ name: name, days: leave.days });
+                        }
+                        currentDate.setDate(currentDate.getDate() + 1);
+                    }
+                });
+
+                let daysHTML = '';
+                
+                // Add leading empty days for alignment
+                for (let i = 0; i < firstDayOfMonth; i++) {
+                    daysHTML += '<div class="p-2 border border-gray-200 bg-gray-100"></div>';
+                }
+
+                // Add days of the month
+                for (let day = 1; day <= daysInMonth; day++) {
+                    const dateString = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                    const hasLeave = leavesByDay[dateString] && leavesByDay[dateString].length > 0;
+                    
+                    let tooltipContent = '';
+                    let cssClass = 'bg-white';
+                    
+                    if (hasLeave) {
+                        cssClass = 'calendar-day-active bg-red-200 hover:bg-red-300';
+                        const leaveDetails = leavesByDay[dateString];
+                        tooltipContent = `<div class="calendar-day-tooltip text-sm">${leaveDetails.map(d => d.name).join('<br>')}</div>`;
+                    }
+                    
+                    daysHTML += `
+                        <div class="calendar-day p-2 border border-gray-200 text-center relative cursor-default transition duration-100 ${cssClass}">
+                            <span class="font-semibold">${day}</span>
+                            ${tooltipContent}
+                            ${hasLeave ? `<span class="absolute top-0 right-0 h-2 w-2 rounded-full bg-red-600"></span>` : ''}
+                        </div>
+                    `;
+                }
+
+
+                return `
+                    <div class="flex justify-between items-center mb-4">
+                        <button id="prev-month" class="p-2 rounded-full hover:bg-gray-100">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg>
+                        </button>
+                        <h4 class="text-xl font-bold">${monthNames[month]} ${year} - ${department.name}</h4>
+                        <button id="next-month" class="p-2 rounded-full hover:bg-gray-100">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                        </button>
+                    </div>
+                    
+                    <div class="grid grid-cols-7 text-center font-medium text-gray-700 border-b border-gray-300">
+                        ${dayNames.map(day => `<div class="p-2 text-sm">${day}</div>`).join('')}
+                    </div>
+                    <div class="grid grid-cols-7">
+                        ${daysHTML}
+                    </div>
+                    <p class="text-xs text-red-600 mt-4 text-center">Red-highlighted days indicate approved leave days within your department.</p>
+                `;
+            };
+
+            const updateModalContent = () => {
+                const calendarContainer = document.getElementById('calendar-container');
+                if (calendarContainer) {
+                    calendarContainer.innerHTML = renderCalendar(currentMonth, currentYear);
+                    attachCalendarListeners();
+                }
+            };
+
+            const attachCalendarListeners = () => {
+                document.getElementById('prev-month')?.addEventListener('click', () => {
+                    currentMonth--;
+                    if (currentMonth < 0) {
+                        currentMonth = 11;
+                        currentYear--;
+                    }
+                    updateModalContent();
+                });
+
+                document.getElementById('next-month')?.addEventListener('click', () => {
+                    currentMonth++;
+                    if (currentMonth > 11) {
+                        currentMonth = 0;
+                        currentYear++;
+                    }
+                    updateModalContent();
+                });
+            };
+
+            const initialContent = `
+                <h3 class="text-2xl font-bold mb-4 text-gray-800">Department Leave Calendar</h3>
+                <div id="calendar-container" class="space-y-4">
+                    ${renderCalendar(currentMonth, currentYear)}
+                </div>
+            `;
+            
+            // Render the modal and then attach listeners
+            renderModal(initialContent);
+            attachCalendarListeners();
+        };
+
+
+        const renderApp = () => {
+            const appDiv = document.getElementById('app');
+            appDiv.innerHTML = '';
+
+            if (!state.currentUser) {
+                appDiv.className = "min-h-screen flex items-center justify-center p-4";
+                appDiv.appendChild(renderLogin());
+            } else {
+                appDiv.className = "min-h-screen flex flex-col p-4 md:p-8";
+                appDiv.appendChild(renderDashboard());
+            }
+        };
+
+        const renderLogin = () => {
+            const card = document.createElement('div');
+            card.className = 'w-full max-w-md bg-white p-8 rounded-xl shadow-2xl';
+            card.innerHTML = `
+                <h1 class="text-3xl font-bold mb-6 text-center text-gray-800">HR & Leave Management System</h1>
+                <p class="text-center text-sm mb-8 text-gray-500">Use these credentials to login: 
+                    <span class="font-semibold text-blue-600">admin/123</span>, 
+                    <span class="font-semibold text-blue-600">manager1/123</span>, or 
+                    <span class="font-semibold text-blue-600">employee1/123</span></p>
+                <form id="login-form" class="space-y-6">
+                    <div>
+                        <label for="username" class="block text-sm font-medium text-gray-700">Username:</label>
+                        <input type="text" id="username" name="username" required class="mt-1 block w-full px-4 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500">
+                    </div>
+                    <div>
+                        <label for="password" class="block text-sm font-medium text-gray-700">Password:</label>
+                        <input type="password" id="password" name="password" required class="mt-1 block w-full px-4 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500">
+                    </div>
+                    <button type="submit" class="w-full flex justify-center py-3 px-4 border border-transparent rounded-lg shadow-sm text-lg font-medium text-white color-primary hover:bg-blue-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition duration-150">
+                        Log In
+                    </button>
+                    <div id="login-message" class="text-center mt-4"></div>
+                </form>
+            `;
+
+            card.querySelector('#login-form').addEventListener('submit', (e) => {
+                e.preventDefault();
+                const username = e.target.username.value;
+                const password = e.target.password.value;
+                login(username, password);
+            });
+
+            return card;
+        };
+
+        const renderDashboard = () => {
+            const dashboardDiv = document.createElement('div');
+            dashboardDiv.className = 'w-full max-w-7xl mx-auto space-y-8';
+
+            const roleName = state.currentUser.role === 'admin' ? 'System Administrator' :
+                            state.currentUser.role === 'manager' ? 'Department Manager' : 'Employee';
+            
+            const unreadCount = getUnreadNotificationCount(state.currentUser.id);
+            
+            // Header Section - UPDATED TO INCLUDE TITLE AND PASSWORD BUTTON
+            dashboardDiv.innerHTML = `
+                <header class="flex flex-col md:flex-row justify-between items-center p-4 bg-white rounded-xl shadow-lg border-t-4 border-blue-600">
+                    <div>
+                        <h1 class="text-2xl font-bold text-gray-800">Welcome, ${state.currentUser.title} ${state.currentUser.name}</h1>
+                        <p class="text-sm text-gray-500">Your Current Role: <span class="font-semibold text-blue-600">${roleName}</span></p>
+                    </div>
+                    <div class="flex items-center space-x-4 mt-3 md:mt-0 relative">
+                        
+                        <button id="change-password-btn" class="px-4 py-2 bg-yellow-500 text-white font-medium rounded-lg shadow-md hover:bg-yellow-600 transition duration-150 text-sm">
+                            Change Password
+                        </button>
+                        
+                        <!-- Notifications Dropdown -->
+                        <div id="notification-dropdown-container" class="relative">
+                            <button id="notification-btn" class="p-2 rounded-full hover:bg-gray-100 relative transition duration-150">
+                                <svg class="w-6 h-6 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.471 5.95 6 7.477 6 9.208V14.16a2.032 2.032 0 01-.595 1.432L4 17h5m6 0a3 3 0 11-6 0m6 0H9"></path>
+                                </svg>
+                                ${unreadCount > 0 ? `<span class="absolute top-0 right-0 inline-flex items-center justify-center px-2 py-1 text-xs font-bold leading-none text-red-100 transform translate-x-1/2 -translate-y-1/2 bg-red-600 rounded-full">${unreadCount}</span>` : ''}
+                            </button>
+                            <div id="notification-content" class="hidden absolute left-0 md:right-0 md:left-auto mt-2 w-80 bg-white rounded-lg shadow-xl z-50 ring-1 ring-black ring-opacity-5">
+                                ${renderNotificationList()}
+                            </div>
+                        </div>
+
+                        <button id="logout-btn" class="px-4 py-2 bg-red-500 text-white font-medium rounded-lg shadow-md hover:bg-red-600 transition duration-150 text-sm">
+                            Logout
+                        </button>
+                    </div>
+                </header>
+                <div id="main-content" class="grid grid-cols-1 gap-8">
+                    <!-- Specific role content will be injected here -->
+                </div>
+            `;
+
+            dashboardDiv.querySelector('#logout-btn').addEventListener('click', logout);
+            dashboardDiv.querySelector('#change-password-btn').addEventListener('click', renderChangePasswordModal);
+            
+            // Notification toggle logic
+            const notifBtn = dashboardDiv.querySelector('#notification-btn');
+            const notifContent = dashboardDiv.querySelector('#notification-content');
+            
+            notifBtn.addEventListener('click', () => {
+                notifContent.classList.toggle('hidden');
+                if (!notifContent.classList.contains('hidden')) {
+                    markNotificationsAsRead(state.currentUser.id);
+                    // Re-render dashboard to update the unread count badge
+                    renderApp(); 
+                }
+            });
+
+            // Close dropdown when clicking outside
+            document.addEventListener('click', (e) => {
+                if (!notifBtn.contains(e.target) && !notifContent.contains(e.target) && notifContent.parentElement.contains(notifContent)) {
+                    notifContent.classList.add('hidden');
+                }
+            });
+
+            const contentDiv = dashboardDiv.querySelector('#main-content');
+
+            if (state.currentUser.role === 'admin') {
+                contentDiv.appendChild(renderAdminPanel());
+            } else if (state.currentUser.role === 'manager') {
+                contentDiv.appendChild(renderManagerPanel());
+                contentDiv.appendChild(renderEmployeeLeavePanel()); // Managers can also submit leaves
+            } else if (state.currentUser.role === 'employee') {
+                contentDiv.appendChild(renderEmployeeLeavePanel());
+            }
+
+            return dashboardDiv;
+        };
+
+        const renderNotificationList = () => {
+            const userNotifications = state.notifications
+                .filter(n => n.userId === state.currentUser.id)
+                .slice(0, 10); // Show only the 10 most recent
+
+            if (userNotifications.length === 0) {
+                return '<div class="p-3 text-center text-gray-500 text-sm">No notifications.</div>';
+            }
+
+            return userNotifications.map(n => `
+                <div class="p-3 border-b border-gray-100 ${n.read ? 'bg-white text-gray-600' : 'bg-blue-50 font-semibold text-gray-800'} hover:bg-gray-100 transition duration-100">
+                    <p class="text-sm">${n.message}</p>
+                    <p class="text-xs text-gray-400 mt-1">${n.timestamp}</p>
+                </div>
+            `).join('');
+        };
+        
+        const renderAdminPanel = () => {
+            const adminPanel = document.createElement('div');
+            adminPanel.className = 'bg-white p-6 rounded-xl shadow-lg';
+            
+            // Generate submission control list
+            const submissionControlHTML = state.departments.map(d => `
+                <div class="p-3 border rounded-lg flex justify-between items-center text-sm ${d.isSubmissionOpen ? 'bg-green-100 border-green-400' : 'bg-red-100 border-red-400'}">
+                    <span class="font-semibold">${d.name}</span>
+                    <div class="flex items-center space-x-2">
+                        <span class="text-xs font-medium">${d.isSubmissionOpen ? 'OPEN' : 'CLOSED'}</span>
+                        <button data-dept-id="${d.id}" data-status="${d.isSubmissionOpen ? 'close' : 'open'}" class="toggle-submission-btn px-3 py-1 text-xs rounded-lg text-white ${d.isSubmissionOpen ? 'bg-red-500 hover:bg-red-600' : 'bg-green-500 hover:bg-green-600'} transition">
+                            ${d.isSubmissionOpen ? 'Close Submission' : 'Open Submission'}
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+
+
+            adminPanel.innerHTML = `
+                <h2 class="text-xl font-bold mb-6 border-b pb-2 text-blue-600">System Administrator Dashboard</h2>
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    
+                    <!-- Department Management -->
+                    <div class="p-4 border rounded-xl shadow-sm">
+                        <h3 class="font-semibold mb-3 text-gray-700">Department Management</h3>
+                        <form id="add-dept-form" class="space-y-2 mb-4">
+                            <input type="text" id="dept-name" placeholder="New Department Name" required class="w-full px-3 py-1 border rounded-lg">
+                            <select id="dept-manager" class="w-full px-3 py-1 border rounded-lg">
+                                <option value="0">Select Department Manager (Optional)</option>
+                                ${state.users.filter(u => u.role !== 'admin').map(u => `<option value="${u.id}">${u.title} ${u.name} (${u.role === 'manager' ? 'Manager' : 'Employee'})</option>`).join('')}
+                            </select>
+                            <button type="submit" class="w-full py-1.5 bg-green-500 text-white rounded-lg hover:bg-green-600 transition">Add Department</button>
+                        </form>
+                        
+                        <!-- Search Department Input -->
+                        <h4 class="font-medium text-sm mb-2 text-gray-700 border-t pt-2">Department List:</h4>
+                        <input type="text" id="dept-search" placeholder="Search departments or managers..." class="w-full px-3 py-1 border rounded-lg mb-2">
+                        
+                        <div id="departments-list" class="space-y-2 h-48 overflow-y-auto custom-scrollbar">
+                            ${generateDepartmentListHTML()}
+                        </div>
+                    </div>
+
+                    <!-- Add New Employee -->
+                    <div class="p-4 border rounded-xl shadow-sm">
+                        <h3 class="font-semibold mb-3 text-gray-700">Add New Employee</h3>
+                        <form id="add-employee-form" class="space-y-2">
+                            <select id="emp-title" required class="w-full px-3 py-1 border rounded-lg">
+                                <option value="Mr.">Mr.</option>
+                                <option value="Ms.">Ms.</option>
+                                <option value="Eng.">Eng.</option>
+                                <option value="Dr.">Dr.</option>
+                            </select>
+                            <input type="text" id="emp-name" placeholder="Full Name" required class="w-full px-3 py-1 border rounded-lg">
+                            <input type="text" id="emp-username" placeholder="Username" required class="w-full px-3 py-1 border rounded-lg">
+                            <input type="password" id="emp-password" placeholder="Password (123)" value="123" required class="w-full px-3 py-1 border rounded-lg">
+                            
+                            <!-- Detailed Employee Info -->
+                            <input type="text" id="emp-position" placeholder="Position Title (e.g., Sr. Architect)" required class="w-full px-3 py-1 border rounded-lg">
+                            <input type="tel" id="emp-mobile" placeholder="Mobile Number (e.g., 96650xxxxxxx)" required class="w-full px-3 py-1 border rounded-lg">
+                            <label for="emp-join-date" class="block text-xs font-medium text-gray-700 pt-1">Start/Join Date:</label>
+                            <input type="date" id="emp-join-date" required class="w-full px-3 py-1 border rounded-lg">
+                            
+                            <!-- Project Field -->
+                            <select id="emp-project" required class="w-full px-3 py-1 border rounded-lg">
+                                <option value="">Select Project</option>
+                                <option value="SH">SH</option>
+                                <option value="MSBA">MSBA</option>
+                                <option value="N/A">N/A (Not Applicable)</option>
+                            </select>
+
+                            <select id="emp-department" required class="w-full px-3 py-1 border rounded-lg">
+                                <option value="">Select Department</option>
+                                ${state.departments.map(d => `<option value="${d.id}">${d.name}</option>`).join('')}
+                            </select>
+                            <select id="emp-role" required class="w-full px-3 py-1 border rounded-lg">
+                                <option value="employee">Regular Employee</option>
+                                <option value="manager">Department Manager</option>
+                            </select>
+                            
+                            <!-- WhatsApp Checkbox -->
+                            <div class="flex items-center pt-2">
+                                <input id="send-whatsapp" type="checkbox" class="h-4 w-4 text-green-600 border-gray-300 rounded focus:ring-green-500">
+                                <label for="send-whatsapp" class="ml-2 block text-sm text-gray-900">
+                                    Send credentials via WhatsApp
+                                </label>
+                            </div>
+                            
+                            <button type="submit" class="w-full py-1.5 color-primary text-white rounded-lg hover:bg-blue-700 transition">Register Employee</button>
+                        </form>
+                    </div>
+
+                    <!-- General Leave Settings -->
+                    <div class="p-4 border rounded-xl shadow-sm">
+                        <h3 class="font-semibold mb-3 text-gray-700">Max Monthly Leave Settings</h3>
+                        <form id="leave-settings-form" class="space-y-2">
+                            <label class="block text-sm font-medium text-gray-700">Max Monthly Leave Days:</label>
+                            <input type="number" id="max-leaves" min="1" value="${state.settings.maxMonthlyLeaves}" required class="w-full px-3 py-1 border rounded-lg">
+                            <button type="submit" class="w-full py-1.5 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 transition">Save Max Days</button>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Department Submission Control -->
+                <div class="lg:col-span-3 p-4 border rounded-xl shadow-sm bg-gray-50 mt-8">
+                    <h3 class="font-semibold mb-3 text-gray-700 border-b pb-2">Department Submission Control (Open/Close)</h3>
+                    <div id="submission-control-list" class="space-y-3 h-40 overflow-y-auto custom-scrollbar">
+                        ${submissionControlHTML || '<p class="text-center text-gray-500 p-4">No departments to manage submission status.</p>'}
+                    </div>
+                </div>
+
+                <!-- Employee Management -->
+                <div class="lg:col-span-3 p-4 border rounded-xl shadow-sm bg-gray-50 mt-8">
+                    <h3 class="font-semibold mb-3 text-gray-700 border-b pb-2">Employee Management (Delete)</h3>
+                    
+                    <!-- Search Employee Input -->
+                    <input type="text" id="employee-search" placeholder="Search employee name, title, or position..." class="w-full px-3 py-1 border rounded-lg mb-2">
+                    
+                    <div id="employees-management-list" class="space-y-2 h-64 overflow-y-auto custom-scrollbar">
+                        ${generateEmployeeListManagementHTML()}
+                    </div>
+                </div>
+                
+                <!-- Export Tool -->
+                <div class="lg:col-span-3 p-4 border rounded-xl shadow-sm bg-gray-50 mt-8">
+                    <h3 class="font-semibold mb-3 text-gray-700 border-b pb-2">Export Tool</h3>
+                    <p class="text-sm text-gray-600 mb-3">Generates a detailed attendance grid (CSV) for the current month showing all approved leave days ('X') for all employees.</p>
+                    <button id="export-leaves-btn" class="w-full py-2 bg-indigo-600 text-white font-medium rounded-lg shadow-md hover:bg-indigo-700 transition">
+                        Export Current Month Approved Leaves
+                    </button>
+                </div>
+
+                <!-- Review panel will be appended after setting innerHTML -->
+            `;
+
+            // --- Admin Event Listeners ---
+            
+            // 1. Department Search Listener
+            const deptSearchInput = adminPanel.querySelector('#dept-search');
+            const departmentsListDiv = adminPanel.querySelector('#departments-list');
+            if (deptSearchInput && departmentsListDiv) {
+                deptSearchInput.addEventListener('input', (e) => {
+                    departmentsListDiv.innerHTML = generateDepartmentListHTML(e.target.value);
+                });
+            }
+
+            // 2. Employee Search Listener
+            const employeeSearchInput = adminPanel.querySelector('#employee-search');
+            const employeesListDiv = adminPanel.querySelector('#employees-management-list');
+            if (employeeSearchInput && employeesListDiv) {
+                employeeSearchInput.addEventListener('input', (e) => {
+                    employeesListDiv.innerHTML = generateEmployeeListManagementHTML(e.target.value);
+                });
+            }
+            
+            // 3. Employee Management Delegated Clicks (View Profile & Delete)
+            adminPanel.addEventListener('click', (e) => {
+                const viewProfileBtn = e.target.closest('.view-profile-btn');
+                if (viewProfileBtn) {
+                    const userId = parseInt(viewProfileBtn.dataset.userId);
+                    renderEmployeeProfileModal(userId);
+                }
+            });
+
+
+            // 4. Add Department
+            adminPanel.querySelector('#add-dept-form').addEventListener('submit', (e) => {
+                e.preventDefault();
+                const name = e.target['dept-name'].value.trim();
+                let managerId = parseInt(e.target['dept-manager'].value);
+                
+                // Set managerId to null if 0 (the optional placeholder) is selected
+                if (managerId === 0) {
+                    managerId = null;
+                }
+
+                if (!name) {
+                    displayMessage('Please enter a department name.', 'bg-red-500');
+                    return;
+                }
+
+                const newDept = {
+                    id: getNextId(state.departments),
+                    name: name,
+                    managerId: managerId, // Use null or the selected ID
+                    isSubmissionOpen: true, // Default to open
+                };
+                state.departments.push(newDept);
+
+                // Update manager role and department in users list (only if a manager was selected)
+                if (managerId) { 
+                    const manager = state.users.find(u => u.id === managerId);
+                    if (manager) {
+                        manager.role = 'manager';
+                        manager.departmentId = newDept.id;
+                    }
+                }
+
+                saveData();
+                renderApp(); // Re-render to update lists
+                displayMessage('Department added successfully.', 'bg-green-500');
+            });
+
+            // 5. Add Employee
+            adminPanel.querySelector('#add-employee-form').addEventListener('submit', (e) => {
+                e.preventDefault();
+                const form = e.target;
+                const sendWhatsApp = form['send-whatsapp'].checked;
+
+                const newEmployee = {
+                    id: getNextId(state.users),
+                    title: form['emp-title'].value, 
+                    name: form['emp-name'].value.trim(),
+                    username: form['emp-username'].value.trim(),
+                    password: form['emp-password'].value.trim(),
+                    role: form['emp-role'].value,
+                    departmentId: parseInt(form['emp-department'].value),
+                    joinDate: form['emp-join-date'].value,
+                    mobileNumber: form['emp-mobile'].value.trim(),
+                    positionTitle: form['emp-position'].value.trim(),
+                    project: form['emp-project'].value, // Project field
+                };
+
+                if (state.users.some(u => u.username === newEmployee.username)) {
+                    displayMessage('Username already exists.', 'bg-red-500');
+                    return;
+                }
+                
+                // Remove any non-digit characters from the mobile number for the WhatsApp link
+                const cleanedMobileNumber = newEmployee.mobileNumber.replace(/\D/g, '');
+
+                state.users.push(newEmployee);
+                saveData();
+                
+                // --- WhatsApp Logic ---
+                if (sendWhatsApp && cleanedMobileNumber) {
+                    const message = `Hello ${newEmployee.title} ${newEmployee.name},\n\nWelcome to the company! Your HR System login details are:\n\nUsername: ${newEmployee.username}\nPassword: ${newEmployee.password}\n\nPlease login and manage your profile and leaves.\nThank you.`;
+                    
+                    const waLink = `https://wa.me/${cleanedMobileNumber}?text=${encodeURIComponent(message)}`;
+                    
+                    // Open in a new tab/window
+                    window.open(waLink, '_blank');
+                    displayMessage('Employee registered and WhatsApp link opened successfully.', 'bg-green-500');
+                } else {
+                    displayMessage('Employee registered successfully.', 'bg-green-500');
+                }
+                // --- End WhatsApp Logic ---
+
+                renderApp();
+            });
+
+            // 6. Update Max Leaves Setting
+            adminPanel.querySelector('#leave-settings-form').addEventListener('submit', (e) => {
+                e.preventDefault();
+                const maxLeaves = parseInt(e.target['max-leaves'].value);
+
+                if (maxLeaves <= 0) {
+                    displayMessage('Please enter a positive number for max leaves.', 'bg-red-500');
+                    return;
+                }
+
+                state.settings.maxMonthlyLeaves = maxLeaves;
+                saveData();
+                renderApp();
+                displayMessage('Max monthly leave days updated successfully.', 'bg-green-500');
+            });
+            
+            // 7. Combined Delegated Click Listener for Deletes and Submission Toggles
+            adminPanel.addEventListener('click', (e) => {
+                const toggleBtn = e.target.closest('.toggle-submission-btn');
+                const deleteDeptBtn = e.target.closest('.delete-dept-btn');
+                const deleteUserBtn = e.target.closest('.delete-user-btn');
+
+                if (toggleBtn) {
+                    // Logic for Department Submission Toggle
+                    const deptId = parseInt(toggleBtn.dataset.deptId);
+                    const action = toggleBtn.dataset.status;
+
+                    const dept = state.departments.find(d => d.id === deptId);
+                    if (dept) {
+                        dept.isSubmissionOpen = (action === 'open');
+                        saveData();
+                        renderApp();
+                        displayMessage(`Submission for ${dept.name} is now ${action.toUpperCase()}.`, 'bg-blue-500');
+                    }
+
+                } else if (deleteDeptBtn) {
+                    // Logic for Department Deletion
+                    const deptId = parseInt(deleteDeptBtn.dataset.deptId);
+                    if (confirm('Are you sure you want to delete this department? Employees will be set to "Not Defined" and "Regular Employee" role.')) {
+                        state.departments = state.departments.filter(d => d.id !== deptId);
+                        // Nullify departmentId for affected users
+                        state.users.forEach(u => {
+                            if (u.departmentId === deptId) {
+                                u.departmentId = null;
+                                if (u.role === 'manager') u.role = 'employee'; // Demote manager if department is deleted
+                            }
+                        });
+                        saveData();
+                        renderApp();
+                        displayMessage('Department deleted successfully.', 'bg-green-500');
+                    }
+                } else if (deleteUserBtn) {
+                    // Logic for User Deletion
+                    const userId = parseInt(deleteUserBtn.dataset.userId);
+                    const user = getUserById(userId);
+
+                    if (!user || user.role === 'admin') {
+                        displayMessage('Cannot delete the System Administrator or a non-existent user.', 'bg-red-500');
+                        return;
+                    }
+
+                    if (confirm(`Are you sure you want to delete employee: ${user.name}?`)) {
+                        state.users = state.users.filter(u => u.id !== userId);
+                        // If the deleted user was a manager, update the department managerId
+                        state.departments.forEach(d => {
+                            if (d.managerId === userId) d.managerId = null;
+                        });
+                        // Remove user's leaves
+                        state.leaves = state.leaves.filter(l => l.userId !== userId);
+
+                        saveData();
+                        renderApp();
+                        displayMessage('Employee deleted successfully.', 'bg-green-500');
+                    }
+                }
+            });
+
+            // 8. Export Leaves Button Listener
+            adminPanel.querySelector('#export-leaves-btn').addEventListener('click', handleExport);
+
+            // Append the actual DOM element for the review panel
+            adminPanel.appendChild(renderReviewPanel(true));
+
+            return adminPanel;
+        };
+        
+        // NEW FUNCTION: Renders all leave history for the manager's department
+        const renderDepartmentLeaveHistory = () => {
+            const managerDeptId = state.currentUser.departmentId;
+            const currentMonth = new Date().toISOString().substring(0, 7); // YYYY-MM
+            
+            // Helper function to render the filtered list
+            const renderFilteredList = (filterTerm, statusFilter) => {
+                // FIX: Ensure filterTerm is a string before calling toLowerCase
+                const lowerCaseFilter = (filterTerm || '').toLowerCase();
+                
+                let departmentLeaves = state.leaves.filter(l => 
+                    getUserById(l.userId)?.departmentId === managerDeptId
+                );
+                
+                // 1. Filter by Status
+                if (statusFilter !== 'all') {
+                    departmentLeaves = departmentLeaves.filter(l => l.status === statusFilter);
+                }
+                
+                // 2. Filter by Employee Name (Safety check applied here)
+                if (lowerCaseFilter) {
+                    departmentLeaves = departmentLeaves.filter(l => {
+                        const employee = getUserById(l.userId);
+                        // FIX: Safely extract name and ensure it's a string before calling toLowerCase
+                        const nameToFilter = String(employee?.name || ''); // Ultra safe check
+                        return nameToFilter.toLowerCase().includes(lowerCaseFilter);
+                    });
+                }
+                
+                return departmentLeaves.length === 0 
+                    ? '<p class="text-center text-gray-500 p-4">No leave history found for this department matching the criteria.</p>'
+                    : departmentLeaves.sort((a, b) => new Date(b.submittedAt) - new Date(a.submittedAt)).map(l => {
+                        const employee = getUserById(l.userId);
+                        const statusClass = l.status === 'approved' ? 'border-green-500 bg-green-50' : 
+                                            l.status === 'rejected' ? 'border-red-500 bg-red-50' : 
+                                            'border-yellow-500 bg-yellow-50';
+                        const statusText = l.status.charAt(0).toUpperCase() + l.status.slice(1);
+
+                        return `
+                            <div class="p-4 bg-white rounded-lg shadow-md border-l-4 ${statusClass} flex justify-between items-center">
+                                <div class="flex-1">
+                                    <p class="font-bold text-gray-800">${employee?.title || ''} ${employee?.name || 'Unknown User'}</p>
+                                    <p class="text-sm text-gray-600">From ${l.startDate} to ${l.endDate} (${l.days} days)</p>
+                                    <p class="text-xs mt-1">Status: <span class="font-semibold">${statusText}</span></p>
+                                </div>
+                            </div>
+                        `;
+                    }).join('');
+            };
+
+
+            const historyDiv = document.createElement('div');
+            historyDiv.className = 'mt-8';
+            historyDiv.innerHTML = `
+                <h3 class="text-xl font-semibold text-gray-800 mb-4">Department Leave History (All Statuses)</h3>
+                
+                <!-- History Filters (NEW) -->
+                <div class="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-4 mb-4">
+                    <select id="history-status-filter" class="w-full sm:w-1/3 px-3 py-1.5 border rounded-lg shadow-sm">
+                        <option value="all">Filter by Status (All)</option>
+                        <option value="pending">Pending</option>
+                        <option value="approved">Approved</option>
+                        <option value="rejected">Rejected</option>
+                    </select>
+                    <input type="text" id="history-employee-search" placeholder="Filter by Employee Name" class="w-full sm:w-2/3 px-3 py-1.5 border rounded-lg shadow-sm">
+                </div>
+                
+                <div id="leave-history-list" class="space-y-4 h-96 overflow-y-auto custom-scrollbar p-2 border rounded-xl bg-gray-100">
+                    ${renderFilteredList(state.filter.historyEmployee, state.filter.historyStatus)}
+                </div>
+            `;
+            
+            // Attach Filter Listeners
+            const listContainer = historyDiv.querySelector('#leave-history-list');
+            const statusFilter = historyDiv.querySelector('#history-status-filter');
+            const employeeSearch = historyDiv.querySelector('#history-employee-search');
+
+            const applyFilters = () => {
+                state.filter.historyStatus = statusFilter.value;
+                state.filter.historyEmployee = employeeSearch.value;
+                listContainer.innerHTML = renderFilteredList(state.filter.historyEmployee, state.filter.historyStatus);
+                saveData(); // Save filter state temporarily if needed, though usually filters are temporary
+            };
+
+            statusFilter.value = state.filter.historyStatus;
+            employeeSearch.value = state.filter.historyEmployee;
+
+            statusFilter.addEventListener('change', applyFilters);
+            employeeSearch.addEventListener('input', applyFilters);
+
+
+            return historyDiv;
+        };
+
+
+        const renderManagerPanel = () => {
+            const managerPanel = document.createElement('div');
+            managerPanel.className = 'bg-white p-6 rounded-xl shadow-lg';
+            
+            const managerId = state.currentUser.id;
+            const managerDeptId = state.currentUser.departmentId;
+            
+            const teamMembers = state.users.filter(u => u.departmentId === managerDeptId && u.id !== managerId);
+            const pendingLeaves = state.leaves.filter(l => 
+                l.status === 'pending' && getUserById(l.userId)?.departmentId === managerDeptId
+            ).length;
+            
+            const currentMonth = new Date().toISOString().substring(0, 7);
+            const approvedLeavesDays = state.leaves.filter(l => 
+                l.status === 'approved' && getUserById(l.userId)?.departmentId === managerDeptId && l.startDate.startsWith(currentMonth)
+            ).reduce((sum, l) => sum + l.days, 0);
+
+            // Manager Metrics (KPIs - NEW)
+            const metricsHTML = `
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+                    <div class="p-4 bg-blue-100 border border-blue-300 rounded-lg shadow-sm">
+                        <p class="text-sm text-blue-800">Total Team Members</p>
+                        <p class="text-2xl font-bold text-blue-900">${teamMembers.length}</p>
+                    </div>
+                    <div class="p-4 bg-yellow-100 border border-yellow-300 rounded-lg shadow-sm">
+                        <p class="text-sm text-yellow-800">Pending Leave Requests</p>
+                        <p class="text-2xl font-bold text-yellow-900">${pendingLeaves}</p>
+                    </div>
+                    <div class="p-4 bg-green-100 border border-green-300 rounded-lg shadow-sm">
+                        <p class="text-sm text-green-800">Approved Leave Days (This Month)</p>
+                        <p class="text-2xl font-bold text-green-900">${approvedLeavesDays}</p>
+                    </div>
+                </div>
+            `;
+
+
+            managerPanel.innerHTML = `
+                <h2 class="text-xl font-bold mb-6 border-b pb-2 text-blue-600">Department Manager Dashboard</h2>
+                ${metricsHTML}
+                <div id="manager-content" class="space-y-8">
+                    <!-- Calendar View Button -->
+                    <button id="view-calendar-btn" class="px-4 py-2 bg-indigo-600 text-white font-medium rounded-lg shadow-md hover:bg-indigo-700 transition">
+                        View Leave Calendar
+                    </button>
+                    <!-- Content sections will be appended here -->
+                </div>
+            `;
+            
+            const contentDiv = managerPanel.querySelector('#manager-content');
+
+            // Attach Calendar Button Listener
+            managerPanel.querySelector('#view-calendar-btn').addEventListener('click', renderLeaveCalendarModal);
+            
+            // 1. Review Panel for Pending Leaves (Action required)
+            contentDiv.appendChild(renderReviewPanel(false)); 
+
+            // 2. Department Leave History (All statuses for viewing)
+            contentDiv.appendChild(renderDepartmentLeaveHistory()); 
+            
+            return managerPanel;
+        };
+
+
+        const renderEmployeeLeavePanel = () => {
+            const employeeId = state.currentUser.id;
+            const currentMonth = new Date().toISOString().substring(0, 7); // YYYY-MM
+            
+            const department = getDeptById(state.currentUser.departmentId);
+            const isSubmissionOpen = department ? department.isSubmissionOpen : false;
+
+            const userLeavesThisMonth = state.leaves.filter(l =>
+                l.userId === employeeId && l.startDate.startsWith(currentMonth)
+            );
+            
+            // Calculate approved DAYS
+            const approvedLeavesDays = userLeavesThisMonth
+                .filter(l => l.status === 'approved')
+                .reduce((sum, l) => sum + l.days, 0);
+
+            const maxLeaves = state.settings.maxMonthlyLeaves;
+            const remainingLeaves = maxLeaves - approvedLeavesDays;
+
+            const employeePanel = document.createElement('div');
+            employeePanel.className = 'bg-white p-6 rounded-xl shadow-lg';
+            employeePanel.innerHTML = `
+                <h2 class="text-xl font-bold mb-6 border-b pb-2 text-blue-600">Leave Management</h2>
+
+                <div class="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                    <p class="font-medium">Department: <span class="text-blue-700">${getEmployeeDeptName(employeeId)}</span></p>
+                    <p class="font-medium">Position: <span class="text-blue-700">${state.currentUser.positionTitle}</span></p>
+                    <p class="font-medium">Max Monthly Approved Days: <span class="text-blue-700">${maxLeaves} days</span></p>
+                    <p class="font-medium">Approved Days This Month: <span class="text-red-600">${approvedLeavesDays} days</span></p>
+                    <p class="font-medium">Remaining Leave Days This Month: <span class="text-green-600">${remainingLeaves} days</span></p>
+                    <p class="font-medium text-sm mt-2">Submission Status:
+                        ${isSubmissionOpen
+                            ? `<span class="text-green-600 font-bold">Currently Open</span>`
+                            : `<span class="text-red-600 font-bold">Currently Closed by Admin</span>`
+                        }
+                    </p>
+                </div>
+
+                <h3 class="font-semibold text-gray-700 mb-4">Submit New Leave Request</h3>
+                <form id="submit-leave-form" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label for="start-date" class="block text-sm font-medium text-gray-700">Start Date:</label>
+                        <input type="date" id="start-date" required class="mt-1 block w-full px-3 py-2 border rounded-lg">
+                    </div>
+                    <div>
+                        <label for="end-date" class="block text-sm font-medium text-gray-700">End Date:</label>
+                        <input type="date" id="end-date" required class="mt-1 block w-full px-3 py-2 border rounded-lg">
+                    </div>
+                    <div class="md:col-span-2">
+                        <label for="reason" class="block text-sm font-medium text-gray-700">Reason:</label>
+                        <textarea id="reason" rows="2" required class="mt-1 block w-full px-3 py-2 border rounded-lg"></textarea>
+                    </div>
+                    <div class="md:col-span-2">
+                        <button type="submit" id="submit-btn" class="w-full py-2 bg-indigo-600 text-white font-medium rounded-lg shadow-md hover:bg-indigo-700 transition" ${isSubmissionOpen && remainingLeaves > 0 ? '' : 'disabled'}>
+                            Submit Request (Days: <span id="days-count">0</span>)
+                        </button>
+                        ${!isSubmissionOpen ? '<p class="text-red-500 text-center mt-2">Leave submission is currently closed for your department.</p>' : ''}
+                        ${remainingLeaves <= 0 && isSubmissionOpen ? '<p class="text-red-500 text-center mt-2">You have reached the maximum approved leave days for this month.</p>' : ''}
+                    </div>
+                </form>
+
+                <h3 class="font-semibold text-gray-700 mt-8 mb-4 border-t pt-4">My Previous Requests</h3>
+                <div id="my-leaves-list" class="space-y-3 h-64 overflow-y-auto custom-scrollbar">
+                    ${userLeavesThisMonth.length > 0 ? userLeavesThisMonth.sort((a, b) => new Date(b.submittedAt) - new Date(a.submittedAt)).map(l => `
+                        <div class="p-3 border rounded-lg shadow-sm ${l.status === 'approved' ? 'bg-green-50 border-green-300' : l.status === 'rejected' ? 'bg-red-50 border-red-300' : 'bg-yellow-50 border-yellow-300'}">
+                            <p class="font-medium">${l.startDate} to ${l.endDate} (${l.days} days)</p>
+                            <p class="text-sm text-gray-600">Status: <span class="font-bold">${l.status === 'approved' ? 'Approved' : l.status === 'rejected' ? 'Rejected' : 'Pending'}</span></p>
+                            <p class="text-xs mt-1">Reason: ${l.reason}</p>
+                        </div>
+                    `).join('') : '<p class="text-center text-gray-500">You have not submitted any leave requests this month.</p>'}
+                </div>
+            `;
+
+            const form = employeePanel.querySelector('#submit-leave-form');
+            const startDateInput = form.querySelector('#start-date');
+            const endDateInput = form.querySelector('#end-date');
+            const daysCountSpan = form.querySelector('#days-count');
+
+            const updateDaysCount = () => {
+                if (startDateInput.value && endDateInput.value) {
+                    const days = calculateDays(startDateInput.value, endDateInput.value);
+                    daysCountSpan.textContent = days > 0 ? days : '0';
+                    
+                    const canSubmit = isSubmissionOpen && remainingLeaves >= days && days > 0;
+                    form.querySelector('#submit-btn').disabled = !canSubmit;
+
+                    if (days > remainingLeaves) {
+                         daysCountSpan.textContent = `${days} (Exceeds Remaining: ${remainingLeaves})`;
+                         form.querySelector('#submit-btn').disabled = true;
+                    } else if (days > 0) {
+                        daysCountSpan.textContent = days;
+                    } else {
+                        daysCountSpan.textContent = '0';
+                    }
+
+                } else {
+                    daysCountSpan.textContent = '0';
+                    form.querySelector('#submit-btn').disabled = true;
+                }
+            };
+
+            startDateInput.addEventListener('change', updateDaysCount);
+            endDateInput.addEventListener('change', updateDaysCount);
+            updateDaysCount(); // Initial check
+
+            form.addEventListener('submit', (e) => {
+                e.preventDefault();
+
+                const startDate = startDateInput.value;
+                const endDate = endDateInput.value;
+                const reason = form.querySelector('#reason').value.trim();
+                const days = calculateDays(startDate, endDate);
+
+                if (days <= 0 || new Date(startDate) > new Date(endDate)) {
+                    displayMessage('Please select valid start and end dates.', 'bg-red-500');
+                    return;
+                }
+                
+                // Calculate approved DAYS in the month
+                const approvedLeavesDaysInMonth = state.leaves.filter(l =>
+                    l.userId === employeeId && l.startDate.startsWith(startDate.substring(0, 7)) && l.status === 'approved'
+                ).reduce((sum, l) => sum + l.days, 0);
+
+                if (approvedLeavesDaysInMonth + days > maxLeaves) {
+                    displayMessage(`This request exceeds the maximum allowed monthly days (${maxLeaves} approved days).`, 'bg-red-500');
+                    return;
+                }
+
+                const department = getDeptById(state.currentUser.departmentId);
+                const managerId = department ? department.managerId : 1; // Default to Admin if no manager
+                
+                const newLeave = {
+                    id: getNextId(state.leaves),
+                    userId: employeeId,
+                    startDate: startDate,
+                    endDate: endDate,
+                    days: days,
+                    reason: reason,
+                    status: 'pending',
+                    submittedAt: new Date().toISOString().split('T')[0],
+                    managerId: managerId,
+                };
+
+                state.leaves.push(newLeave);
+                saveData();
+                
+                // --- Notification Generation on Submission - UPDATED WITH TITLE ---
+                const employeeNameWithTitle = state.currentUser.title + ' ' + state.currentUser.name;
+                const deptName = getEmployeeDeptName(employeeId);
+                const notificationMessage = `New leave request submitted by ${employeeNameWithTitle} (${deptName}) for ${days} days.`;
+
+                // Notify the assigned manager
+                if (managerId && managerId !== 1) {
+                    createNotification(managerId, notificationMessage);
+                }
+                // Always notify Admin (ID 1)
+                createNotification(1, notificationMessage);
+                // --- End Notification Generation ---
+
+                renderApp();
+                displayMessage('Leave request submitted successfully. Waiting for manager review.', 'bg-green-500');
+            });
+
+            return employeePanel;
+        };
+
+        const renderReviewPanel = (isAdmin) => {
+            
+            // Helper function to render the filtered list
+            const renderFilteredList = (filterTerm, statusFilter) => {
+                // FIX: Ensure filterTerm is a string before calling toLowerCase
+                const lowerCaseFilter = (filterTerm || '').toLowerCase();
+                let filteredLeaves;
+
+                if (isAdmin) {
+                    // Admin sees all pending leaves
+                    filteredLeaves = state.leaves.filter(l => l.status === 'pending');
+                } else {
+                    // Manager sees pending leaves for their department
+                    const managerDeptId = state.currentUser.departmentId;
+                    filteredLeaves = state.leaves.filter(l =>
+                        l.status === 'pending' && getUserById(l.userId)?.departmentId === managerDeptId
+                    );
+                }
+                
+                // Apply Employee Name Filter
+                if (lowerCaseFilter) {
+                    filteredLeaves = filteredLeaves.filter(l => {
+                        const employee = getUserById(l.userId);
+                        // FIX: Safely extract name and ensure it's a string before calling toLowerCase
+                        const nameToFilter = String(employee?.name || '');
+                        return nameToFilter.toLowerCase().includes(lowerCaseFilter);
+                    });
+                }
+                
+                // Apply Status Filter (only 'pending' is relevant here, but kept for future proofing)
+                if (statusFilter !== 'pending') {
+                     // In the review panel, we only show pending leaves
+                }
+
+
+                if (filteredLeaves.length === 0) {
+                    return '<p class="text-center text-gray-500 p-4">No pending leave requests currently matching the criteria.</p>';
+                }
+
+                return filteredLeaves.sort((a, b) => new Date(a.submittedAt) - new Date(b.submittedAt)).map(l => {
+                    const employee = getUserById(l.userId);
+                    const departmentName = getEmployeeDeptName(l.userId);
+
+                    return `
+                        <div class="p-4 bg-white rounded-lg shadow-md border-l-4 border-yellow-500 flex flex-col md:flex-row justify-between items-start md:items-center">
+                            <div class="flex-1">
+                                <p class="font-bold text-gray-800">${employee?.title || ''} ${employee?.name || 'Unknown User'} - (${departmentName})</p>
+                                <p class="text-sm text-gray-600">From ${l.startDate} to ${l.endDate} (${l.days} days)</p>
+                                <p class="text-xs text-gray-500 mt-1">Reason: ${l.reason}</p>
+                            </div>
+                            <div class="flex space-x-2 mt-3 md:mt-0">
+                                <button data-id="${l.id}" data-action="approved" class="px-3 py-1 text-sm bg-green-500 text-white rounded-lg hover:bg-green-600 transition">Approve</button>
+                                <button data-id="${l.id}" data-action="rejected" class="px-3 py-1 text-sm bg-red-500 text-white rounded-lg hover:bg-red-600 transition">Reject</button>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            };
+
+            const reviewPanel = document.createElement('div');
+            reviewPanel.className = 'mt-8';
+            reviewPanel.innerHTML = `
+                <h3 class="text-xl font-semibold text-gray-800 mb-4">${isAdmin ? 'All Leave Requests for Review' : 'Department Leave Requests for Review'}</h3>
+                
+                <!-- Review Filter (NEW) -->
+                <div class="mb-4">
+                    <input type="text" id="review-employee-search" placeholder="Filter by Employee Name" class="w-full px-3 py-1.5 border rounded-lg shadow-sm">
+                </div>
+
+                <div id="review-list" class="space-y-4 h-96 overflow-y-auto custom-scrollbar p-2 border rounded-xl bg-gray-100">
+                    ${renderFilteredList(state.filter.reviewEmployee, 'pending')}
+                </div>
+            `;
+            
+            // Attach Filter Listener
+            const listContainer = reviewPanel.querySelector('#review-list');
+            const employeeSearch = reviewPanel.querySelector('#review-employee-search');
+
+            const applyFilters = () => {
+                state.filter.reviewEmployee = employeeSearch.value;
+                listContainer.innerHTML = renderFilteredList(state.filter.reviewEmployee, 'pending');
+            };
+
+            employeeSearch.value = state.filter.reviewEmployee;
+            employeeSearch.addEventListener('input', applyFilters);
+
+            reviewPanel.addEventListener('click', (e) => {
+                const actionBtn = e.target.closest('[data-action]');
+                if (actionBtn) {
+                    const leaveId = parseInt(actionBtn.dataset.id);
+                    const action = actionBtn.dataset.action;
+                    handleLeaveAction(leaveId, action);
+                    // Reapply filters after action
+                    setTimeout(applyFilters, 100); 
+                }
+            });
+
+            return reviewPanel;
+        };
+
+        // --- 6. Leave Actions ---
+
+        const handleLeaveAction = (leaveId, action) => {
+            const leave = state.leaves.find(l => l.id === leaveId);
+            if (!leave) return;
+
+            // Check if approved leaves DAYS exceed the max limit
+            if (action === 'approved') {
+                const employeeId = leave.userId;
+                const month = leave.startDate.substring(0, 7);
+                const maxLeaves = state.settings.maxMonthlyLeaves;
+
+                const approvedLeavesDaysThisMonth = state.leaves.filter(l =>
+                    l.userId === employeeId && l.startDate.startsWith(month) && l.status === 'approved'
+                ).reduce((sum, l) => sum + l.days, 0);
+
+                if (approvedLeavesDaysThisMonth + leave.days > maxLeaves) {
+                    displayMessage(`Error: Approving this request exceeds the maximum allowed monthly days (${maxLeaves} days). Currently approved: ${approvedLeavesDaysThisMonth} days.`, 'bg-red-600');
+                    return;
+                }
+            }
+            
+            leave.status = action;
+            saveData();
+
+            // --- Notification Generation on Action - UPDATED WITH TITLE ---
+            const employee = getUserById(leave.userId);
+            const actorNameWithTitle = state.currentUser.title + ' ' + state.currentUser.name;
+            const employeeNameWithTitle = employee.title + ' ' + employee.name;
+
+            const notificationMessage = `Your leave request (${leave.startDate} to ${leave.endDate}) was ${action} by ${actorNameWithTitle}.`;
+            
+            // Notify the Employee
+            createNotification(employee.id, notificationMessage);
+
+            // If the action was taken by a Manager, notify Admin (ID 1)
+            if (state.currentUser.role === 'manager') {
+                const adminNotification = `${actorNameWithTitle} has ${action} a leave for employee ${employeeNameWithTitle}.`;
+                createNotification(1, adminNotification);
+            }
+            // --- End Notification Generation ---
+
+            renderApp();
+            displayMessage(`Leave request ${action === 'approved' ? 'approved' : 'rejected'} successfully.`, action === 'approved' ? 'bg-green-500' : 'bg-red-500');
+        };
+
+        // --- 7. UI Helpers ---
+
+        const displayMessage = (message, className) => {
+            const appDiv = document.getElementById('app');
+            const messageBox = document.createElement('div');
+            // Changed right-4 to left-4 for LTR
+            messageBox.className = `fixed top-4 left-4 z-50 p-4 rounded-lg shadow-xl text-white font-semibold ${className} transition-opacity duration-300`; 
+            messageBox.textContent = message;
+
+            appDiv.appendChild(messageBox);
+
+            setTimeout(() => {
+                messageBox.classList.add('opacity-0');
+                messageBox.addEventListener('transitionend', () => messageBox.remove());
+            }, 3000);
+        };
+
+        // --- Initialization ---
+        document.addEventListener('DOMContentLoaded', () => {
+            initData();
+            renderApp();
+        });
+
+    </script>
+</body>
+</html>
